@@ -63,5 +63,12 @@ namespace MediaBrowser.Controller.Collections
         /// <param name="createIfNeeded">Will create the collection folder on the storage if set to true.</param>
         /// <returns>The folder instance referencing the collection storage.</returns>
         Task<Folder?> GetCollectionsFolder(bool createIfNeeded);
+
+        /// <summary>
+        /// Returns the set of BoxSet IDs that are nested inside another BoxSet.
+        /// These sub-collections should be hidden from top-level collection views.
+        /// </summary>
+        /// <returns>Set of sub-collection IDs.</returns>
+        IReadOnlyCollection<Guid> GetSubCollectionIds();
     }
 }

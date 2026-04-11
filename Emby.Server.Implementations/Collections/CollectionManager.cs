@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Entities;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Collections;
@@ -310,7 +311,26 @@ namespace Emby.Server.Implementations.Collections
         {
             var results = new Dictionary<Guid, BaseItem>();
 
-            var allBoxSets = GetCollections(user).ToList();
+            // Get ALL BoxSets (including sub-collections) so we can walk the full hierarchy.
+            var allBoxSets = _libraryManager.GetItemList(new InternalItemsQuery
+            {
+                IncludeItemTypes = new[] { BaseItemKind.BoxSet },
+                Recursive = true
+            }).OfType<BoxSet>().ToList();
+
+            // Only collapse into root-level collections. Sub-collections (BoxSets that are
+            // themselves a LinkedChild of another BoxSet) should not appear at the top level —
+            // their movies will be represented by the root ancestor instead.
+            var subCollectionIds = GetSubCollectionIds();
+            var rootBoxSets = allBoxSets.Where(b => !subCollectionIds.Contains(b.Id)).ToList();
+
+            // Build a lookup: movie/item ID → root BoxSet, walking recursively through
+            // sub-collections. Any item reachable from a root BoxSet maps to that root.
+            var movieToRootBoxSet = new Dictionary<Guid, BoxSet>();
+            foreach (var rootBoxSet in rootBoxSets)
+            {
+                MapMoviesToRootBoxSet(rootBoxSet, rootBoxSet, allBoxSets, movieToRootBoxSet);
+            }
 
             foreach (var item in items)
             {
@@ -318,6 +338,15 @@ namespace Emby.Server.Implementations.Collections
                 {
                     var itemId = item.Id;
 
+                    if (movieToRootBoxSet.TryGetValue(itemId, out var rootBoxSet))
+                    {
+                        // Item belongs to a collection hierarchy — show the root, not the item.
+                        results.TryAdd(rootBoxSet.Id, rootBoxSet);
+                        continue;
+                    }
+
+                    // Legacy path: item has no recursive mapping but may still be a direct
+                    // child of a BoxSet (e.g. a BoxSet whose LinkedChildren lack LibraryItemId).
                     var itemIsInBoxSet = false;
                     foreach (var boxSet in allBoxSets)
                     {
@@ -364,6 +393,99 @@ namespace Emby.Server.Implementations.Collections
             }
 
             return results.Values;
+        }
+
+        /// <inheritdoc />
+        public IReadOnlyCollection<Guid> GetSubCollectionIds()
+        {
+            var allBoxSets = _libraryManager.GetItemList(new InternalItemsQuery
+            {
+                IncludeItemTypes = new[] { BaseItemKind.BoxSet },
+                Recursive = true
+            }).OfType<BoxSet>().ToList();
+
+            if (allBoxSets.Count == 0)
+            {
+                return Array.Empty<Guid>();
+            }
+
+            var allIds = allBoxSets.Select(b => b.Id).ToHashSet();
+            var subIds = new HashSet<Guid>();
+
+            foreach (var boxSet in allBoxSets)
+            {
+                foreach (var linkedChild in boxSet.LinkedChildren)
+                {
+                    // ItemId is a lazily-resolved cache and may be null on first load.
+                    // LibraryItemId is the authoritative string form (no-dash Guid) set
+                    // by LinkedChild.Create() when the child has no filesystem path,
+                    // which is always the case for BoxSets.
+                    Guid? linkedId = linkedChild.ItemId is { } id && !id.Equals(Guid.Empty)
+                        ? id
+                        : !string.IsNullOrEmpty(linkedChild.LibraryItemId)
+                            && Guid.TryParse(linkedChild.LibraryItemId, out var parsed)
+                            ? parsed
+                            : null;
+
+                    if (linkedId.HasValue && allIds.Contains(linkedId.Value))
+                    {
+                        subIds.Add(linkedId.Value);
+                    }
+                }
+            }
+
+            return subIds;
+        }
+
+        /// <summary>
+        /// Recursively maps each movie (non-BoxSet) linked child to its root ancestor BoxSet.
+        /// </summary>
+        private static void MapMoviesToRootBoxSet(
+            BoxSet currentBoxSet,
+            BoxSet rootBoxSet,
+            List<BoxSet> allBoxSets,
+            Dictionary<Guid, BoxSet> movieToRootBoxSet)
+            => MapMoviesToRootBoxSet(currentBoxSet, rootBoxSet, allBoxSets, movieToRootBoxSet, new HashSet<Guid>());
+
+        private static void MapMoviesToRootBoxSet(
+            BoxSet currentBoxSet,
+            BoxSet rootBoxSet,
+            List<BoxSet> allBoxSets,
+            Dictionary<Guid, BoxSet> movieToRootBoxSet,
+            HashSet<Guid> visited)
+        {
+            if (!visited.Add(currentBoxSet.Id))
+            {
+                // Already visited — circular reference, stop recursing.
+                return;
+            }
+
+            foreach (var linkedChild in currentBoxSet.LinkedChildren)
+            {
+                Guid? linkedId = linkedChild.ItemId is { } id && !id.Equals(Guid.Empty)
+                    ? id
+                    : !string.IsNullOrEmpty(linkedChild.LibraryItemId)
+                        && Guid.TryParse(linkedChild.LibraryItemId, out var parsed)
+                        ? parsed
+                        : null;
+
+                if (!linkedId.HasValue)
+                {
+                    continue;
+                }
+
+                var childBoxSet = allBoxSets.Find(b => b.Id.Equals(linkedId.Value));
+                if (childBoxSet is not null)
+                {
+                    // Recurse into sub-collection, keeping the same root.
+                    MapMoviesToRootBoxSet(childBoxSet, rootBoxSet, allBoxSets, movieToRootBoxSet, visited);
+                }
+                else
+                {
+                    // It's a movie/non-BoxSet — map it to the root.
+                    movieToRootBoxSet.TryAdd(linkedId.Value, rootBoxSet);
+                }
+            }
         }
     }
 }

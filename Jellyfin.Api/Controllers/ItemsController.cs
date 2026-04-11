@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using Jellyfin.Api.Extensions;
@@ -9,6 +10,7 @@ using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Extensions;
 using MediaBrowser.Common.Extensions;
+using MediaBrowser.Controller.Collections;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -39,6 +41,7 @@ public class ItemsController : BaseJellyfinApiController
     private readonly ILogger<ItemsController> _logger;
     private readonly ISessionManager _sessionManager;
     private readonly IUserDataManager _userDataRepository;
+    private readonly ICollectionManager _collectionManager;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ItemsController"/> class.
@@ -50,6 +53,7 @@ public class ItemsController : BaseJellyfinApiController
     /// <param name="logger">Instance of the <see cref="ILogger"/> interface.</param>
     /// <param name="sessionManager">Instance of the <see cref="ISessionManager"/> interface.</param>
     /// <param name="userDataRepository">Instance of the <see cref="IUserDataManager"/> interface.</param>
+    /// <param name="collectionManager">Instance of the <see cref="ICollectionManager"/> interface.</param>
     public ItemsController(
         IUserManager userManager,
         ILibraryManager libraryManager,
@@ -57,7 +61,8 @@ public class ItemsController : BaseJellyfinApiController
         IDtoService dtoService,
         ILogger<ItemsController> logger,
         ISessionManager sessionManager,
-        IUserDataManager userDataRepository)
+        IUserDataManager userDataRepository,
+        ICollectionManager collectionManager)
     {
         _userManager = userManager;
         _libraryManager = libraryManager;
@@ -66,6 +71,7 @@ public class ItemsController : BaseJellyfinApiController
         _logger = logger;
         _sessionManager = sessionManager;
         _userDataRepository = userDataRepository;
+        _collectionManager = collectionManager;
     }
 
     /// <summary>
@@ -498,10 +504,54 @@ public class ItemsController : BaseJellyfinApiController
             result = new QueryResult<BaseItem>(itemsArray);
         }
 
+        // Post-filter: remove sub-collections from top-level results.
+        // Rules:
+        //   - Only when not navigating inside a BoxSet (sub-collections are visible as children
+        //     of their parent when the user browses into it).
+        //   - Only for non-recursive queries. Recursive queries (e.g. the collection picker,
+        //     search) need to see all collections including sub-collections.
+        if (folder is not BoxSet && !(recursive ?? false) && result.Items.Any(i => i is BoxSet))
+        {
+            var subIds = _collectionManager.GetSubCollectionIds();
+            if (subIds.Count > 0)
+            {
+                _logger.LogDebug(
+                    "Collections view: hiding {Count} sub-collection(s): [{Ids}]",
+                    subIds.Count,
+                    string.Join(", ", subIds));
+
+                var filteredItems = result.Items.Where(i => i is not BoxSet b || !subIds.Contains(b.Id)).ToArray();
+                var removedCount = result.Items.Count - filteredItems.Length;
+                result = new QueryResult<BaseItem>(result.StartIndex, Math.Max(0, result.TotalRecordCount - removedCount), filteredItems);
+            }
+        }
+
+        var dtos = _dtoService.GetBaseItemDtos(result.Items, dtoOptions, user).ToArray();
+
+        // When the query is an unrestricted recursive BoxSet fetch (the collection picker),
+        // annotate sub-collection display names with "→ " and sort them under their parent
+        // so the user can distinguish root vs nested collections without corrupting stored names.
+        if ((recursive ?? false)
+            && includeItemTypes.Length == 1
+            && includeItemTypes[0] == BaseItemKind.BoxSet)
+        {
+            var subIds = _collectionManager.GetSubCollectionIds();
+            if (subIds.Count > 0)
+            {
+                var allBoxSets = _libraryManager.GetItemList(new InternalItemsQuery
+                {
+                    IncludeItemTypes = new[] { BaseItemKind.BoxSet },
+                    Recursive = true
+                }).OfType<BoxSet>().ToList();
+
+                dtos = CollectionPickerHelper.AnnotateAndSort(dtos, subIds, allBoxSets);
+            }
+        }
+
         return new QueryResult<BaseItemDto>(
             startIndex,
             result.TotalRecordCount,
-            _dtoService.GetBaseItemDtos(result.Items, dtoOptions, user));
+            dtos);
     }
 
     /// <summary>
