@@ -280,6 +280,11 @@ public class ItemsController : BaseJellyfinApiController
         var item = _libraryManager.GetParentItem(parentId, userId);
         QueryResult<BaseItem> result;
 
+        // Save the original parentId before it may be reset below.
+        // This is the authoritative value for distinguishing the global collection picker
+        // (no parentId) from the Movies › Collections sub-view (has a UserView parentId).
+        var originalParentId = parentId;
+
         if (includeItemTypes.Length == 1
             && includeItemTypes[0] == BaseItemKind.BoxSet
             && item is not BoxSet)
@@ -508,9 +513,9 @@ public class ItemsController : BaseJellyfinApiController
         // Rules:
         //   - Only when not navigating inside a BoxSet (sub-collections are visible as children
         //     of their parent when the user browses into it).
-        //   - Only for non-recursive queries. Recursive queries (e.g. the collection picker,
-        //     search) need to see all collections including sub-collections.
-        if (folder is not BoxSet && !(recursive ?? false) && result.Items.Any(i => i is BoxSet))
+        //   - Not for the global collection picker, which sends no parentId and needs all
+        //     collections visible (annotated by the block below). Picker = recursive + no originalParentId.
+        if (folder is not BoxSet && !((recursive ?? false) && originalParentId is null) && result.Items.Any(i => i is BoxSet))
         {
             var subIds = _collectionManager.GetSubCollectionIds();
             if (subIds.Count > 0)
@@ -531,10 +536,10 @@ public class ItemsController : BaseJellyfinApiController
         // When the query is an unrestricted recursive BoxSet fetch (the collection picker),
         // annotate sub-collection display names with "→ " and sort them under their parent
         // so the user can distinguish root vs nested collections without corrupting stored names.
-        // parentId == null distinguishes the global picker query from the Movies › Collections
-        // sub-view, which supplies a parentId and must not receive annotated names.
+        // originalParentId is null only for the true global picker — the Movies › Collections
+        // sub-view always supplies a parentId, which routes through the filter block above.
         if ((recursive ?? false)
-            && parentId is null
+            && originalParentId is null
             && includeItemTypes.Length == 1
             && includeItemTypes[0] == BaseItemKind.BoxSet)
         {

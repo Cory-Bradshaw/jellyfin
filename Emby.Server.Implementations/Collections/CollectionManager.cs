@@ -333,12 +333,16 @@ namespace Emby.Server.Implementations.Collections
                     rootBoxSets.Count);
             }
 
-            // Build a lookup: movie/item ID → root BoxSet, walking recursively through
-            // sub-collections. Any item reachable from a root BoxSet maps to that root.
+            // Build two lookups while walking each root's hierarchy:
+            //   movieToRootBoxSet : movie/item ID → the root BoxSet that owns it
+            //   subToRootBoxSet   : sub-collection ID → the root BoxSet that owns it
+            // Both are needed so the legacy path (path-only LinkedChildren) can also
+            // collapse to the root rather than surfacing a sub-collection.
             var movieToRootBoxSet = new Dictionary<Guid, BoxSet>();
+            var subToRootBoxSet = new Dictionary<Guid, BoxSet>();
             foreach (var rootBoxSet in rootBoxSets)
             {
-                MapMoviesToRootBoxSet(rootBoxSet, rootBoxSet, allBoxSets, movieToRootBoxSet);
+                MapMoviesToRootBoxSet(rootBoxSet, rootBoxSet, allBoxSets, movieToRootBoxSet, subToRootBoxSet);
             }
 
             foreach (var item in items)
@@ -356,6 +360,8 @@ namespace Emby.Server.Implementations.Collections
 
                     // Legacy path: item has no recursive mapping but may still be a direct
                     // child of a BoxSet (e.g. a BoxSet whose LinkedChildren lack LibraryItemId).
+                    // IMPORTANT: if the containing BoxSet is itself a sub-collection, use its
+                    // root ancestor — otherwise the sub-collection would surface at the top level.
                     var itemIsInBoxSet = false;
                     foreach (var boxSet in allBoxSets)
                     {
@@ -366,7 +372,8 @@ namespace Emby.Server.Implementations.Collections
 
                         itemIsInBoxSet = true;
 
-                        results.TryAdd(boxSet.Id, boxSet);
+                        var root = subToRootBoxSet.TryGetValue(boxSet.Id, out var r) ? r : boxSet;
+                        results.TryAdd(root.Id, root);
                     }
 
                     // skip any item that is in a box set
@@ -449,20 +456,23 @@ namespace Emby.Server.Implementations.Collections
         }
 
         /// <summary>
-        /// Recursively maps each movie (non-BoxSet) linked child to its root ancestor BoxSet.
+        /// Recursively maps each movie (non-BoxSet) linked child to its root ancestor BoxSet,
+        /// and also maps each sub-collection encountered to the same root.
         /// </summary>
         private static void MapMoviesToRootBoxSet(
             BoxSet currentBoxSet,
             BoxSet rootBoxSet,
             List<BoxSet> allBoxSets,
-            Dictionary<Guid, BoxSet> movieToRootBoxSet)
-            => MapMoviesToRootBoxSet(currentBoxSet, rootBoxSet, allBoxSets, movieToRootBoxSet, new HashSet<Guid>());
+            Dictionary<Guid, BoxSet> movieToRootBoxSet,
+            Dictionary<Guid, BoxSet> subToRootBoxSet)
+            => MapMoviesToRootBoxSet(currentBoxSet, rootBoxSet, allBoxSets, movieToRootBoxSet, subToRootBoxSet, new HashSet<Guid>());
 
         private static void MapMoviesToRootBoxSet(
             BoxSet currentBoxSet,
             BoxSet rootBoxSet,
             List<BoxSet> allBoxSets,
             Dictionary<Guid, BoxSet> movieToRootBoxSet,
+            Dictionary<Guid, BoxSet> subToRootBoxSet,
             HashSet<Guid> visited)
         {
             if (!visited.Add(currentBoxSet.Id))
@@ -490,8 +500,10 @@ namespace Emby.Server.Implementations.Collections
                 var childBoxSet = allBoxSets.Find(b => b.Id.Equals(linkedId.Value));
                 if (childBoxSet is not null)
                 {
+                    // Track this sub-collection → root mapping for the legacy path.
+                    subToRootBoxSet.TryAdd(childBoxSet.Id, rootBoxSet);
                     // Recurse into sub-collection, keeping the same root.
-                    MapMoviesToRootBoxSet(childBoxSet, rootBoxSet, allBoxSets, movieToRootBoxSet, visited);
+                    MapMoviesToRootBoxSet(childBoxSet, rootBoxSet, allBoxSets, movieToRootBoxSet, subToRootBoxSet, visited);
                 }
                 else
                 {
