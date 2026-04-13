@@ -101,8 +101,8 @@ public class CollectionPickerHelperTests
             new List<BoxSet> { grand, parent, child });
 
         var childAnnotated = result.First(d => d.Id.Equals(childId));
-        // Depth 2 (child of parent which is child of grand): "- → Child"
-        Assert.StartsWith("- \u2192 ", childAnnotated.Name, StringComparison.Ordinal);
+        // Depth 2 (child of parent which is child of grand): "-- → Child"
+        Assert.StartsWith("-- \u2192 ", childAnnotated.Name, StringComparison.Ordinal);
     }
 
     // -------------------------------------------------------------------------
@@ -223,8 +223,8 @@ public class CollectionPickerHelperTests
             new List<BoxSet> { grand, parent, child });
 
         var grandChild = result.First(d => d.Id.Equals(childId));
-        // Depth 2: "- → Child"
-        Assert.StartsWith("- \u2192 ", grandChild.Name, StringComparison.Ordinal);
+        // Depth 2: "-- → Child"
+        Assert.StartsWith("-- \u2192 ", grandChild.Name, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -252,8 +252,8 @@ public class CollectionPickerHelperTests
             new List<BoxSet> { greatGrand, grand, parent, child });
 
         var deepChild = result.First(d => d.Id.Equals(childId));
-        // Depth 3: "-- → Child"
-        Assert.StartsWith("-- \u2192 ", deepChild.Name, StringComparison.Ordinal);
+        // Depth 3: "---- → Child"
+        Assert.StartsWith("---- \u2192 ", deepChild.Name, StringComparison.Ordinal);
     }
 
     [Fact]

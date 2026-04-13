@@ -324,6 +324,15 @@ namespace Emby.Server.Implementations.Collections
             var subCollectionIds = GetSubCollectionIds();
             var rootBoxSets = allBoxSets.Where(b => !subCollectionIds.Contains(b.Id)).ToList();
 
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug(
+                    "CollapseItemsWithinBoxSets: {TotalBoxSets} total BoxSets, {SubCount} sub-collections, {RootCount} roots",
+                    allBoxSets.Count,
+                    subCollectionIds.Count,
+                    rootBoxSets.Count);
+            }
+
             // Build a lookup: movie/item ID → root BoxSet, walking recursively through
             // sub-collections. Any item reachable from a root BoxSet maps to that root.
             var movieToRootBoxSet = new Dictionary<Guid, BoxSet>();
@@ -418,14 +427,16 @@ namespace Emby.Server.Implementations.Collections
                 {
                     // ItemId is a lazily-resolved cache and may be null on first load.
                     // LibraryItemId is the authoritative string form (no-dash Guid) set
-                    // by LinkedChild.Create() when the child has no filesystem path,
-                    // which is always the case for BoxSets.
+                    // by LinkedChild.Create() when the child has no filesystem path.
+                    // Older data may have neither set — fall back to matching by path.
                     Guid? linkedId = linkedChild.ItemId is { } id && !id.Equals(Guid.Empty)
                         ? id
                         : !string.IsNullOrEmpty(linkedChild.LibraryItemId)
                             && Guid.TryParse(linkedChild.LibraryItemId, out var parsed)
                             ? parsed
-                            : null;
+                            : !string.IsNullOrEmpty(linkedChild.Path)
+                                ? allBoxSets.Find(b => string.Equals(b.Path, linkedChild.Path, StringComparison.OrdinalIgnoreCase))?.Id
+                                : null;
 
                     if (linkedId.HasValue && allIds.Contains(linkedId.Value))
                     {
@@ -467,7 +478,9 @@ namespace Emby.Server.Implementations.Collections
                     : !string.IsNullOrEmpty(linkedChild.LibraryItemId)
                         && Guid.TryParse(linkedChild.LibraryItemId, out var parsed)
                         ? parsed
-                        : null;
+                        : !string.IsNullOrEmpty(linkedChild.Path)
+                            ? allBoxSets.Find(b => string.Equals(b.Path, linkedChild.Path, StringComparison.OrdinalIgnoreCase))?.Id
+                            : null;
 
                 if (!linkedId.HasValue)
                 {

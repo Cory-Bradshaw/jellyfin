@@ -531,7 +531,10 @@ public class ItemsController : BaseJellyfinApiController
         // When the query is an unrestricted recursive BoxSet fetch (the collection picker),
         // annotate sub-collection display names with "→ " and sort them under their parent
         // so the user can distinguish root vs nested collections without corrupting stored names.
+        // parentId == null distinguishes the global picker query from the Movies › Collections
+        // sub-view, which supplies a parentId and must not receive annotated names.
         if ((recursive ?? false)
+            && parentId is null
             && includeItemTypes.Length == 1
             && includeItemTypes[0] == BaseItemKind.BoxSet)
         {

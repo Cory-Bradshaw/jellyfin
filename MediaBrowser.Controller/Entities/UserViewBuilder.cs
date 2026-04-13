@@ -16,6 +16,7 @@ using MediaBrowser.Controller.TV;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.Logging;
+using BoxSet = MediaBrowser.Controller.Entities.Movies.BoxSet;
 using Episode = MediaBrowser.Controller.Entities.TV.Episode;
 using MetadataProvider = MediaBrowser.Model.Entities.MetadataProvider;
 using Series = MediaBrowser.Controller.Entities.TV.Series;
@@ -210,7 +211,61 @@ namespace MediaBrowser.Controller.Entities
             query.SetUser(user);
             query.Recursive = true;
 
+            // Exclude sub-collections so only root-level BoxSets appear in the
+            // Movies › Collections view. Sub-collections are visible when the
+            // user browses into their parent collection.
+            var subIds = GetSubCollectionIds();
+            if (subIds.Count > 0)
+            {
+                query.ExcludeItemIds = query.ExcludeItemIds
+                    .Concat(subIds)
+                    .Distinct()
+                    .ToArray();
+            }
+
             return _libraryManager.GetItemsResult(query);
+        }
+
+        /// <summary>
+        /// Returns the IDs of all BoxSets that are a LinkedChild of another BoxSet.
+        /// </summary>
+        private IReadOnlyCollection<Guid> GetSubCollectionIds()
+        {
+            var allBoxSets = _libraryManager.GetItemList(new InternalItemsQuery
+            {
+                IncludeItemTypes = new[] { BaseItemKind.BoxSet },
+                Recursive = true
+            }).OfType<BoxSet>().ToList();
+
+            if (allBoxSets.Count == 0)
+            {
+                return Array.Empty<Guid>();
+            }
+
+            var allIds = allBoxSets.Select(b => b.Id).ToHashSet();
+            var subIds = new HashSet<Guid>();
+
+            foreach (var boxSet in allBoxSets)
+            {
+                foreach (var linkedChild in boxSet.LinkedChildren)
+                {
+                    Guid? linkedId = linkedChild.ItemId is { } id && !id.Equals(Guid.Empty)
+                        ? id
+                        : !string.IsNullOrEmpty(linkedChild.LibraryItemId)
+                            && Guid.TryParse(linkedChild.LibraryItemId, out var parsed)
+                            ? parsed
+                            : !string.IsNullOrEmpty(linkedChild.Path)
+                                ? allBoxSets.Find(b => string.Equals(b.Path, linkedChild.Path, StringComparison.OrdinalIgnoreCase))?.Id
+                                : null;
+
+                    if (linkedId.HasValue && allIds.Contains(linkedId.Value))
+                    {
+                        subIds.Add(linkedId.Value);
+                    }
+                }
+            }
+
+            return subIds;
         }
 
         private QueryResult<BaseItem> GetMovieLatest(Folder parent, User user, InternalItemsQuery query)
