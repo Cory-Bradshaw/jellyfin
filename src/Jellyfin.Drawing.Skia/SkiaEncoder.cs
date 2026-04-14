@@ -676,6 +676,26 @@ public class SkiaEncoder : IImageEncoder
     /// <inheritdoc/>
     public void CreateImageCollage(ImageCollageOptions options, string? libraryName)
     {
+        var builder = new StripCollageBuilder(this);
+        switch (options.CollageType)
+        {
+            case CollageType.Waterfall:
+                builder.BuildWaterfallCollage(options.InputPaths, options.OutputPath, options.Width, options.Height);
+                return;
+            case CollageType.EvenSplit:
+                builder.BuildEvenSplitCollage(options.InputPaths, options.OutputPath, options.Width, options.Height);
+                return;
+            case CollageType.DiagonalCut:
+                builder.BuildDiagonalCutCollage(options.InputPaths, options.OutputPath, options.Width, options.Height);
+                return;
+            case CollageType.HeroAndStrip:
+                builder.BuildHeroAndStripCollage(options.InputPaths, options.OutputPath, options.Width, options.Height);
+                return;
+            case CollageType.QuadGrid:
+                builder.BuildQuadGridCollage(options.InputPaths, options.OutputPath, options.Width, options.Height);
+                return;
+        }
+
         double ratio = (double)options.Width / options.Height;
 
         if (ratio >= 1.4)

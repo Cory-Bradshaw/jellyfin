@@ -445,7 +445,9 @@ namespace Emby.Server.Implementations.Collections
                                 ? allBoxSets.Find(b => string.Equals(b.Path, linkedChild.Path, StringComparison.OrdinalIgnoreCase))?.Id
                                 : null;
 
-                    if (linkedId.HasValue && allIds.Contains(linkedId.Value))
+                    // Exclude self-references: a collection that lists itself as a linked child
+                    // is not a sub-collection of anything — it should still appear at the top level.
+                    if (linkedId.HasValue && allIds.Contains(linkedId.Value) && !linkedId.Value.Equals(boxSet.Id))
                     {
                         subIds.Add(linkedId.Value);
                     }

@@ -77,7 +77,7 @@ namespace MediaBrowser.Controller.Entities.Movies
         }
 
         public override double GetDefaultPrimaryImageAspectRatio()
-            => 2.0 / 3;
+            => 4.0 / 3; // Waterfall composite images are landscape (800×600)
 
         public override UnratedItem GetBlockUnratedType()
         {
