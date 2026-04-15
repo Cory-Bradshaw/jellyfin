@@ -153,9 +153,13 @@ public class CollectionController : BaseJellyfinApiController
             return NotFound();
         }
 
-        await using var stream = System.IO.File.OpenRead(backdropImage.Path);
-        await _providerManager.SaveImage(item, stream, "image/png", ImageType.Primary, null, cancellationToken)
-            .ConfigureAwait(false);
+        var stream = System.IO.File.OpenRead(backdropImage.Path);
+        await using (stream.ConfigureAwait(false))
+        {
+            await _providerManager.SaveImage(item, stream, "image/png", ImageType.Primary, null, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         await item.UpdateToRepositoryAsync(ItemUpdateType.ImageUpdate, cancellationToken)
             .ConfigureAwait(false);
 

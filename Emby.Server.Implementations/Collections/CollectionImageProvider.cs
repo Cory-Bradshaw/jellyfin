@@ -175,34 +175,46 @@ namespace Emby.Server.Implementations.Collections
             var layouts = GetLayoutsForCollectionSize(allCovers.Count);
             var updateType = ItemUpdateType.None;
 
-            for (int i = 0; i < layouts.Length; i++)
+            if (options.ImageRefreshMode >= MetadataRefreshMode.FullRefresh)
             {
-                var imageType = i == 0 ? ImageType.Primary : ImageType.Backdrop;
-                int imageIndex = i == 0 ? 0 : i - 1;
-                int? nullableIndex = i == 0 ? null : imageIndex;
-                var existing = item.GetImageInfo(imageType, imageIndex);
-
-                // Never overwrite an image the user explicitly assigned from outside the metadata folder.
-                if (existing is not null
-                    && existing.IsLocalFile
-                    && !FileSystem.ContainsSubPath(item.GetInternalMetadataPath(), existing.Path))
+                // On-demand "Generate" path: unconditionally write every layout variant into
+                // Backdrop[0..N-1] so the user can see all options and promote whichever they
+                // prefer to Primary via the star button. No skip logic, no conditionals.
+                for (int i = 0; i < layouts.Length; i++)
                 {
-                    continue;
+                    updateType |= await SaveLayoutVariantAsync(item, allCovers, layouts[i], ImageType.Backdrop, i, cancellationToken)
+                        .ConfigureAwait(false);
                 }
-
-                // Skip a slot that already has an up-to-date generated image
-                // (unless a full image refresh was explicitly requested — e.g. by the
-                // "Generate" button in the image editor — in which case regenerate regardless).
-                if (options.ImageRefreshMode < MetadataRefreshMode.FullRefresh
-                    && existing is not null
-                    && !HasChangedByDate(item, existing))
+            }
+            else
+            {
+                // Automatic / scheduled refresh path: fill Primary first, then Backdrop
+                // alternatives, skipping any slot that already has an up-to-date image or a
+                // user-assigned image outside the metadata folder.
+                for (int i = 0; i < layouts.Length; i++)
                 {
-                    continue;
-                }
+                    var imageType = i == 0 ? ImageType.Primary : ImageType.Backdrop;
+                    int imageIndex = i == 0 ? 0 : i - 1;
+                    int? nullableIndex = i == 0 ? null : imageIndex;
+                    var existing = item.GetImageInfo(imageType, imageIndex);
 
-                // Slot is either missing or stale — generate it.
-                updateType |= await SaveLayoutVariantAsync(item, allCovers, layouts[i], imageType, nullableIndex, cancellationToken)
-                    .ConfigureAwait(false);
+                    // Never overwrite an image the user explicitly assigned from outside the metadata folder.
+                    if (existing is not null
+                        && existing.IsLocalFile
+                        && !FileSystem.ContainsSubPath(item.GetInternalMetadataPath(), existing.Path))
+                    {
+                        continue;
+                    }
+
+                    // Skip a slot that already has an up-to-date generated image.
+                    if (existing is not null && !HasChangedByDate(item, existing))
+                    {
+                        continue;
+                    }
+
+                    updateType |= await SaveLayoutVariantAsync(item, allCovers, layouts[i], imageType, nullableIndex, cancellationToken)
+                        .ConfigureAwait(false);
+                }
             }
 
             return updateType;
@@ -214,17 +226,76 @@ namespace Emby.Server.Implementations.Collections
         /// </summary>
         private static CollageType[] GetLayoutsForCollectionSize(int count) => count switch
         {
-            // 1 image: even split degrades gracefully to a single full-canvas poster.
-            1 => [CollageType.EvenSplit],
+            // 1 image: full-canvas poster, spotlight depth effect, cinematic panorama.
+            1 => [CollageType.EvenSplit, CollageType.CardDrop, CollageType.Spotlight, CollageType.BackdropPanorama],
 
-            // 2–3 movies: small-collection layouts, best-first.
-            2 or 3 => [CollageType.EvenSplit, CollageType.DiagonalCut, CollageType.HeroAndStrip],
+            // 2 movies: side-by-side, diagonal slash, fanned cards, card pile, spotlight, panorama.
+            2 =>
+            [
+                CollageType.EvenSplit,
+                CollageType.DiagonalCut,
+                CollageType.DiagonalAlternating,
+                CollageType.DiagonalForward,
+                CollageType.OverlapPile,
+                CollageType.FanSpread,
+                CollageType.CardDrop,
+                CollageType.Spotlight,
+                CollageType.BackdropPanorama
+            ],
 
-            // 4–8 movies: quad grid as the clean default; waterfall and hero strip as alternatives.
-            <= 8 => [CollageType.QuadGrid, CollageType.Waterfall, CollageType.HeroAndStrip],
+            // 3 movies: editorial trio, side-by-side, diagonal, hero-sliver, card pile, fan, spotlight, panorama.
+            3 =>
+            [
+                CollageType.AsymmetricTrio,
+                CollageType.EvenSplit,
+                CollageType.DiagonalCut,
+                CollageType.DiagonalAlternating,
+                CollageType.DiagonalMixed,
+                CollageType.HeroSliver,
+                CollageType.OverlapPile,
+                CollageType.FanSpread,
+                CollageType.CardDrop,
+                CollageType.Spotlight,
+                CollageType.BackdropPanorama
+            ],
 
-            // 9+ movies: waterfall shows the breadth; quad and hero strip as tighter alternatives.
-            _ => [CollageType.Waterfall, CollageType.QuadGrid, CollageType.HeroAndStrip]
+            // 4–10 movies: grid-focused layouts plus diagonal strips, card pile, fan, and creative variants.
+            <= 10 =>
+            [
+                CollageType.QuadGrid,
+                CollageType.HeroGrid,
+                CollageType.AsymmetricTrio,
+                CollageType.WaterfallFade,
+                CollageType.HeroAndStrip,
+                CollageType.DiagonalForward,
+                CollageType.DiagonalBackward,
+                CollageType.DiagonalAlternating,
+                CollageType.DiagonalMixed,
+                CollageType.OverlapPile,
+                CollageType.FanSpread,
+                CollageType.CardDrop,
+                CollageType.Spotlight,
+                CollageType.BookshelfSpine,
+                CollageType.BackdropPanorama
+            ],
+
+            // 11+ movies: scale-focused layouts that show many films at once.
+            _ =>
+            [
+                CollageType.Waterfall,
+                CollageType.WaterfallFade,
+                CollageType.MosaicGrid,
+                CollageType.CondensedStrip,
+                CollageType.BookshelfSpine,
+                CollageType.DiagonalForward,
+                CollageType.DiagonalAlternating,
+                CollageType.QuadGrid,
+                CollageType.OverlapPile,
+                CollageType.FanSpread,
+                CollageType.CardDrop,
+                CollageType.Spotlight,
+                CollageType.BackdropPanorama
+            ]
         };
 
         private async Task<ItemUpdateType> SaveLayoutVariantAsync(

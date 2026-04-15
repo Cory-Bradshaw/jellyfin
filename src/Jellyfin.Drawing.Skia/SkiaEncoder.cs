@@ -694,6 +694,54 @@ public class SkiaEncoder : IImageEncoder
             case CollageType.QuadGrid:
                 builder.BuildQuadGridCollage(options.InputPaths, options.OutputPath, options.Width, options.Height);
                 return;
+            case CollageType.OverlapPile:
+                builder.BuildOverlapPileCollage(options.InputPaths, options.OutputPath, options.Width, options.Height);
+                return;
+            case CollageType.HeroSliver:
+                builder.BuildHeroSliverCollage(options.InputPaths, options.OutputPath, options.Width, options.Height);
+                return;
+            case CollageType.HeroGrid:
+                builder.BuildHeroGridCollage(options.InputPaths, options.OutputPath, options.Width, options.Height);
+                return;
+            case CollageType.AsymmetricTrio:
+                builder.BuildAsymmetricTrioCollage(options.InputPaths, options.OutputPath, options.Width, options.Height);
+                return;
+            case CollageType.MosaicGrid:
+                builder.BuildMosaicGridCollage(options.InputPaths, options.OutputPath, options.Width, options.Height);
+                return;
+            case CollageType.WaterfallFade:
+                builder.BuildWaterfallFadeCollage(options.InputPaths, options.OutputPath, options.Width, options.Height);
+                return;
+            case CollageType.CondensedStrip:
+                builder.BuildCondensedStripCollage(options.InputPaths, options.OutputPath, options.Width, options.Height);
+                return;
+            case CollageType.BackdropPanorama:
+                builder.BuildBackdropPanoramaCollage(options.InputPaths, options.OutputPath, options.Width, options.Height, libraryName);
+                return;
+            case CollageType.Spotlight:
+                builder.BuildSpotlightCollage(options.InputPaths, options.OutputPath, options.Width, options.Height);
+                return;
+            case CollageType.BookshelfSpine:
+                builder.BuildBookshelfSpineCollage(options.InputPaths, options.OutputPath, options.Width, options.Height);
+                return;
+            case CollageType.CardDrop:
+                builder.BuildCardDropCollage(options.InputPaths, options.OutputPath, options.Width, options.Height);
+                return;
+            case CollageType.FanSpread:
+                builder.BuildFanSpreadCollage(options.InputPaths, options.OutputPath, options.Width, options.Height);
+                return;
+            case CollageType.DiagonalForward:
+                builder.BuildDiagonalForwardCollage(options.InputPaths, options.OutputPath, options.Width, options.Height);
+                return;
+            case CollageType.DiagonalBackward:
+                builder.BuildDiagonalBackwardCollage(options.InputPaths, options.OutputPath, options.Width, options.Height);
+                return;
+            case CollageType.DiagonalAlternating:
+                builder.BuildDiagonalAlternatingCollage(options.InputPaths, options.OutputPath, options.Width, options.Height);
+                return;
+            case CollageType.DiagonalMixed:
+                builder.BuildDiagonalMixedCollage(options.InputPaths, options.OutputPath, options.Width, options.Height);
+                return;
         }
 
         double ratio = (double)options.Width / options.Height;
