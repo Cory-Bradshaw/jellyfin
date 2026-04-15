@@ -1353,41 +1353,73 @@ public partial class StripCollageBuilder
             return bitmap;
         }
 
-        int numCards = Math.Min(paths.Count, 6);
+        // Use all available images, capped at 40 to keep render time reasonable.
+        // The Halton scatter fills the canvas evenly regardless of count.
+        int numCards = Math.Min(paths.Count, 40);
 
-        // Cards are slightly smaller for larger piles so more of each card shows.
-        float cardH = height * (numCards <= 3 ? 0.70f : 0.60f);
+        // Card height shrinks continuously as the pile grows, floored at 30% of canvas
+        // height so posters remain recognisable even in large collections.
+        float cardH = (float)height * Math.Max(0.30f, 0.72f - (numCards * 0.022f));
         float cardW = cardH * (2f / 3f);
         float halfH = cardH / 2f;
         float halfW = cardW / 2f;
 
-        // Fixed scatter positions (cxFrac, cyFrac, angleDeg), back → front draw order.
-        // Positions chosen so all cards are substantially visible within the canvas.
-        (float CxFrac, float CyFrac, float Deg)[] positions = numCards switch
+        if (numCards <= 6)
         {
-            1 => [(0.50f, 0.50f, 0f)],
-            2 => [(0.28f, 0.54f, -18f), (0.72f, 0.48f, 14f)],
-            3 => [(0.20f, 0.56f, -20f), (0.72f, 0.44f, 17f), (0.46f, 0.52f, -4f)],
-            4 => [(0.16f, 0.57f, -22f), (0.80f, 0.40f, 21f), (0.36f, 0.45f, 13f), (0.60f, 0.56f, -9f)],
-            5 => [(0.12f, 0.60f, -24f), (0.84f, 0.36f, 23f), (0.30f, 0.43f, 15f), (0.70f, 0.60f, -12f), (0.48f, 0.50f, -2f)],
-            _ => [(0.10f, 0.62f, -24f), (0.85f, 0.34f, 23f), (0.26f, 0.42f, 17f), (0.74f, 0.62f, -14f), (0.44f, 0.36f, 9f), (0.56f, 0.60f, -5f)],
-        };
+            // For small piles use hand-tuned positions so every card is clearly visible.
+            (float CxFrac, float CyFrac, float Deg)[] positions = numCards switch
+            {
+                1 => [(0.50f, 0.50f, 0f)],
+                2 => [(0.28f, 0.54f, -18f), (0.72f, 0.48f, 14f)],
+                3 => [(0.20f, 0.56f, -20f), (0.72f, 0.44f, 17f), (0.46f, 0.52f, -4f)],
+                4 => [(0.16f, 0.57f, -22f), (0.80f, 0.40f, 21f), (0.36f, 0.45f, 13f), (0.60f, 0.56f, -9f)],
+                5 => [(0.12f, 0.60f, -24f), (0.84f, 0.36f, 23f), (0.30f, 0.43f, 15f), (0.70f, 0.60f, -12f), (0.48f, 0.50f, -2f)],
+                _ => [(0.10f, 0.62f, -24f), (0.85f, 0.34f, 23f), (0.26f, 0.42f, 17f), (0.74f, 0.62f, -14f), (0.44f, 0.36f, 9f), (0.56f, 0.60f, -5f)],
+            };
 
-        for (int i = 0; i < positions.Length; i++)
+            for (int i = 0; i < positions.Length; i++)
+            {
+                var (cxFrac, cyFrac, deg) = positions[i];
+                DrawRotatedCard(canvas, paths, i, (float)width * cxFrac, (float)height * cyFrac, halfW, halfH, deg);
+            }
+        }
+        else
         {
-            var (cxFrac, cyFrac, deg) = positions[i];
-            DrawRotatedCard(
-                canvas,
-                paths,
-                pathIndex: i % paths.Count,
-                cx: width * cxFrac,
-                cy: height * cyFrac,
-                halfW: halfW,
-                halfH: halfH,
-                angleDegrees: deg);
+            // For larger piles scatter cards using a 2D Halton sequence so they fill
+            // the canvas evenly without clustering or obvious grid alignment.
+            float marginX = halfW * 0.55f;
+            float marginY = halfH * 0.55f;
+            float rangeX = (float)width - (2f * marginX);
+            float rangeY = (float)height - (2f * marginY);
+
+            for (int i = 0; i < numCards; i++)
+            {
+                float cx = marginX + (HaltonSequence(i + 1, 2) * rangeX);
+                float cy = marginY + (HaltonSequence(i + 1, 3) * rangeY);
+                // Golden-angle rotation spread gives varied angles with no repetition.
+                float deg = (((i + 1) * 137.508f) % 60f) - 30f;
+                DrawRotatedCard(canvas, paths, i, cx, cy, halfW, halfH, deg);
+            }
         }
 
         return bitmap;
+    }
+
+    // Returns the i-th term of the Halton low-discrepancy sequence in the given base.
+    // Produces evenly distributed values in [0, 1) with no clustering.
+    private static float HaltonSequence(int index, int radix)
+    {
+        float f = 1f;
+        float r = 0f;
+        int i = index;
+        while (i > 0)
+        {
+            f /= radix;
+            r += f * (i % radix);
+            i /= radix;
+        }
+
+        return r;
     }
 
     /// <summary>
